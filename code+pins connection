@@ -1,0 +1,247 @@
+#include <LPC214x.h>
+
+/* =========================================================
+   LPC2148 FIRE DETECTION AND ALERT SYSTEM
+
+   Assumed Pin Configuration:
+   
+   Flame Sensor -> P0.16
+   Red LED      -> P0.17
+   Buzzer       -> P0.18
+   Green LED    -> P0.19
+
+   LCD RS       -> P0.20
+   LCD EN       -> P0.21
+   LCD D4       -> P0.22
+   LCD D5       -> P0.23
+   LCD D6       -> P0.24
+   LCD D7       -> P0.25
+   ========================================================= */
+
+
+/* ---------------- PIN DEFINITIONS ---------------- */
+
+#define FLAME_SENSOR    (1 << 16)
+
+#define RED_LED         (1 << 17)
+#define BUZZER          (1 << 18)
+#define GREEN_LED       (1 << 19)
+
+#define LCD_RS          (1 << 20)
+#define LCD_EN          (1 << 21)
+#define LCD_D4          (1 << 22)
+#define LCD_D5          (1 << 23)
+#define LCD_D6          (1 << 24)
+#define LCD_D7          (1 << 25)
+
+
+/* ---------------- DELAY FUNCTION ---------------- */
+
+void delay_ms(unsigned int ms)
+{
+    unsigned int i, j;
+
+    for(i = 0; i < ms; i++)
+    {
+        for(j = 0; j < 6000; j++);
+    }
+}
+
+
+/* ---------------- LCD ENABLE ---------------- */
+
+void lcd_enable(void)
+{
+    IO0SET = LCD_EN;
+    delay_ms(1);
+
+    IO0CLR = LCD_EN;
+    delay_ms(1);
+}
+
+
+/* ---------------- SEND LCD DATA ---------------- */
+
+void lcd_send_nibble(unsigned int data)
+{
+    /* Clear D4-D7 */
+
+    IO0CLR = LCD_D4 |
+             LCD_D5 |
+             LCD_D6 |
+             LCD_D7;
+
+    /* Set required data bits */
+
+    if(data & 0x01)
+        IO0SET = LCD_D4;
+
+    if(data & 0x02)
+        IO0SET = LCD_D5;
+
+    if(data & 0x04)
+        IO0SET = LCD_D6;
+
+    if(data & 0x08)
+        IO0SET = LCD_D7;
+
+    lcd_enable();
+}
+
+
+/* ---------------- LCD COMMAND ---------------- */
+
+void lcd_cmd(unsigned char cmd)
+{
+    IO0CLR = LCD_RS;
+
+    lcd_send_nibble(cmd >> 4);
+    lcd_send_nibble(cmd & 0x0F);
+
+    delay_ms(2);
+}
+
+
+/* ---------------- LCD CHARACTER ---------------- */
+
+void lcd_data(unsigned char data)
+{
+    IO0SET = LCD_RS;
+
+    lcd_send_nibble(data >> 4);
+    lcd_send_nibble(data & 0x0F);
+
+    delay_ms(2);
+}
+
+
+/* ---------------- LCD STRING ---------------- */
+
+void lcd_string(char *str)
+{
+    while(*str)
+    {
+        lcd_data(*str);
+        str++;
+    }
+}
+
+
+/* ---------------- LCD INITIALIZATION ---------------- */
+
+void lcd_init(void)
+{
+    delay_ms(20);
+
+    IO0CLR = LCD_RS | LCD_EN;
+
+    /* Initialize LCD in 4-bit mode */
+
+    lcd_send_nibble(0x03);
+    delay_ms(5);
+
+    lcd_send_nibble(0x03);
+    delay_ms(1);
+
+    lcd_send_nibble(0x03);
+    delay_ms(1);
+
+    lcd_send_nibble(0x02);
+
+    /* 4-bit, 2-line LCD */
+
+    lcd_cmd(0x28);
+
+    /* Display ON, cursor OFF */
+
+    lcd_cmd(0x0C);
+
+    /* Clear display */
+
+    lcd_cmd(0x01);
+
+    /* Entry mode */
+
+    lcd_cmd(0x06);
+}
+
+
+/* ---------------- MAIN PROGRAM ---------------- */
+
+int main(void)
+{
+    /* Configure GPIO */
+
+    IO0DIR |= RED_LED |
+              BUZZER |
+              GREEN_LED |
+              LCD_RS |
+              LCD_EN |
+              LCD_D4 |
+              LCD_D5 |
+              LCD_D6 |
+              LCD_D7;
+
+    /* Flame sensor as input */
+
+    IO0DIR &= ~FLAME_SENSOR;
+
+    /* Initially turn OFF indicators */
+
+    IO0CLR = RED_LED |
+             BUZZER |
+             GREEN_LED;
+
+    /* Initialize LCD */
+
+    lcd_init();
+
+    lcd_cmd(0x80);
+    lcd_string("Fire Detection");
+
+    delay_ms(2000);
+
+    while(1)
+    {
+        /*
+           Assumption:
+           Flame sensor output LOW = FIRE detected
+           Flame sensor output HIGH = SAFE
+        */
+
+        if((IO0PIN & FLAME_SENSOR) == 0)
+        {
+            /* FIRE CONDITION */
+
+            IO0SET = RED_LED;
+            IO0SET = BUZZER;
+            IO0CLR = GREEN_LED;
+
+            lcd_cmd(0x01);
+            lcd_cmd(0x80);
+            lcd_string("FIRE DETECTED!");
+
+            lcd_cmd(0xC0);
+            lcd_string("ALERT!!!");
+
+            delay_ms(500);
+        }
+        else
+        {
+            /* SAFE CONDITION */
+
+            IO0CLR = RED_LED;
+            IO0CLR = BUZZER;
+            IO0SET = GREEN_LED;
+
+            lcd_cmd(0x01);
+            lcd_cmd(0x80);
+            lcd_string("STATUS: SAFE");
+
+            lcd_cmd(0xC0);
+            lcd_string("NO FIRE");
+
+            delay_ms(500);
+        }
+    }
+}
